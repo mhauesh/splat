@@ -295,6 +295,16 @@ function translate4(a, x, y, z) {
     ];
 }
 
+function multiplyVec4(mat4, vec4) {
+    return [
+        mat4[0] * vec4[0] + mat4[4] * vec4[1] + mat4[8] * vec4[2] + mat4[12] * vec4[3],
+        mat4[1] * vec4[0] + mat4[5] * vec4[1] + mat4[9] * vec4[2] + mat4[13] * vec4[3],
+        mat4[2] * vec4[0] + mat4[6] * vec4[1] + mat4[10] * vec4[2] + mat4[14] * vec4[3],
+        mat4[3] * vec4[0] + mat4[7] * vec4[1] + mat4[11] * vec4[2] + mat4[15] * vec4[3]
+    ];
+}
+
+
 function createWorker(self) {
     let buffer;
     let vertexCount = 0;
@@ -346,7 +356,11 @@ function createWorker(self) {
     }
 
     function generateTexture() {
-        if (!buffer) return;
+        console.log("Generating texture");
+        if (!buffer) {
+            console.log("No buffer available");
+            return;
+        }
         const f_buffer = new Float32Array(buffer);
         const u_buffer = new Uint8Array(buffer);
 
@@ -371,7 +385,7 @@ function createWorker(self) {
             texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
             texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];
             texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
-
+    
             // quaternions
             let scale = [
                 f_buffer[8 * i + 3 + 0],
@@ -414,7 +428,11 @@ function createWorker(self) {
             texdata[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
         }
 
+        console.log("Texture data generated. First splat color:", 
+            texdata_c[4 * 7], texdata_c[4 * 7 + 1], texdata_c[4 * 7 + 2], texdata_c[4 * 7 + 3]);
+    
         self.postMessage({ texdata, texwidth, texheight }, [texdata.buffer]);
+        console.log("Texture generation complete");
     }
 
     function runSort(viewProj) {
@@ -548,6 +566,7 @@ function createWorker(self) {
         // RGBA - colors (uint8)
         // IJKL - quaternion/rot (uint8)
         const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
+        const reader = req.body.getReader();
         const buffer = new ArrayBuffer(rowLength * vertexCount);
 
         console.time("build buffer");
@@ -634,21 +653,19 @@ function createWorker(self) {
 
     let sortRunning;
     self.onmessage = (e) => {
-        if (e.data.ply) {
-            vertexCount = 0;
-            runSort(viewProj);
-            buffer = processPlyBuffer(e.data.ply);
-            vertexCount = Math.floor(buffer.byteLength / rowLength);
-            postMessage({ buffer: buffer });
-        } else if (e.data.buffer) {
+        console.log("Worker received message:", Object.keys(e.data));
+        if (e.data.buffer) {
+            console.log("Received buffer data");
             buffer = e.data.buffer;
             vertexCount = e.data.vertexCount;
-        } else if (e.data.vertexCount) {
-            vertexCount = e.data.vertexCount;
+            console.log("Buffer updated, vertexCount:", vertexCount);
+            generateTexture();
         } else if (e.data.view) {
+            console.log("Updating view");
             viewProj = e.data.view;
             throttledSort();
         }
+
     };
 }
 
@@ -680,6 +697,10 @@ void main () {
     }
 
     uvec4 cov = texelFetch(u_texture, ivec2(((uint(index) & 0x3ffu) << 1) | 1u, uint(index) >> 10), 0);
+    vColor = vec4(float((cov.w) & 0xffu) / 255.0, 
+                  float((cov.w >> 8) & 0xffu) / 255.0, 
+                  float((cov.w >> 16) & 0xffu) / 255.0, 
+                  float((cov.w >> 24) & 0xffu) / 255.0);
     vec2 u1 = unpackHalf2x16(cov.x), u2 = unpackHalf2x16(cov.y), u3 = unpackHalf2x16(cov.z);
     mat3 Vrk = mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
 
@@ -736,22 +757,78 @@ let defaultViewMatrix = [
     0.03, 6.55, 1,
 ];
 let viewMatrix = defaultViewMatrix;
+
+let brushMode = false;
+let eraserMode = false;
+let brushColor = [0, 0, 0, 255]; // Red color by default
+let brushSize = 0.01; // Radius in world space
+let undoStack = [];
+const MAX_UNDO_STEPS = 50;
+let originalColors;
+
+function updateBrushSize(newSize) {
+    brushSize = newSize;
+    console.log("Brush size updated:", brushSize);
+}
+
+window.toggleEraserMode = function() {
+    eraserMode = !eraserMode;
+    if (eraserMode) brushMode = false;
+    console.log("Eraser mode:", eraserMode);
+    updateUIButtons();
+}
+
+window.toggleBrushMode = function() {
+    brushMode = !brushMode;
+    eraserMode = false; // Turn off eraser mode when brush is on
+    console.log("Brush mode:", brushMode);
+    const brushButton = document.getElementById('brush-mode');
+    if (brushButton) {
+        brushButton.textContent = brushMode ? 'Brush: ON' : 'Brush: OFF';
+    }
+    const eraserButton = document.getElementById('eraser-mode');
+    if (eraserButton) {
+        eraserButton.textContent = 'Eraser: OFF';
+    }
+}
+
+function updateUIButtons() {
+    const brushButton = document.getElementById('brush-mode');
+    const eraserButton = document.getElementById('eraser-mode');
+    if (brushButton) brushButton.textContent = brushMode ? 'Brush: ON' : 'Brush: OFF';
+    if (eraserButton) eraserButton.textContent = eraserMode ? 'Eraser: ON' : 'Eraser: OFF';
+}
+
+window.changeBrushColor = function(color) {
+    brushColor = color;
+    console.log("Brush color changed to:", brushColor);
+}
+
+
+window.hexToRgb = function(hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b, 255];
+}
+
+
 async function main() {
     let carousel = true;
+    let undoStack = [];
+    const MAX_UNDO_STEPS = 50;
     const params = new URLSearchParams(location.search);
     try {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
     const url = new URL(
-        // "nike.splat",
-        // location.href,
         params.get("url") || "train.splat",
         "https://huggingface.co/cakewalk/splat-data/resolve/main/",
     );
     const req = await fetch(url, {
-        mode: "cors", // no-cors, *cors, same-origin
-        credentials: "omit", // include, *same-origin, omit
+        mode: "cors",
+        credentials: "omit",
     });
     console.log(req);
     if (req.status != 200)
@@ -760,6 +837,10 @@ async function main() {
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
     const reader = req.body.getReader();
     let splatData = new Uint8Array(req.headers.get("content-length"));
+    let originalColors = new Uint8Array(splatData.length);
+    originalColors = new Uint8Array(splatData.length);
+    originalColors.set(new Uint8Array(splatData.buffer));
+    originalColors.set(new Uint8Array(splatData.buffer));
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
@@ -868,6 +949,7 @@ async function main() {
 
     worker.onmessage = (e) => {
         if (e.data.buffer) {
+            console.log("Received updated buffer data");
             splatData = new Uint8Array(e.data.buffer);
             const blob = new Blob([splatData.buffer], {
                 type: "application/octet-stream",
@@ -878,6 +960,7 @@ async function main() {
             document.body.appendChild(link);
             link.click();
         } else if (e.data.texdata) {
+            console.log("Received texture data");
             const { texdata, texwidth, texheight } = e.data;
             // console.log(texdata)
             gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -908,6 +991,7 @@ async function main() {
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, texture);
         } else if (e.data.depthIndex) {
+            console.log("Received depth index data");
             const { depthIndex, viewProj } = e.data;
             gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
@@ -946,6 +1030,17 @@ async function main() {
         } else if (e.code === "KeyP") {
             carousel = true;
             camid.innerText =""
+        }
+        if (e.code === "KeyB") {
+            toggleBrushMode();
+        }
+        if(e.code == "KeyZ" && !e.ctrlKey)
+        {
+            toggleEraserMode();
+        }
+        if (e.ctrlKey && e.key === 'z') {
+            e.preventDefault(); // Prevent the browser's default undo
+            undo();
         }
     });
     window.addEventListener("keyup", (e) => {
@@ -1000,13 +1095,21 @@ async function main() {
     );
 
     let startX, startY, down;
+
     canvas.addEventListener("mousedown", (e) => {
-        carousel = false;
-        e.preventDefault();
-        startX = e.clientX;
-        startY = e.clientY;
-        down = e.ctrlKey || e.metaKey ? 2 : 1;
+        if (brushMode || eraserMode) {
+            down = true;
+            applyBrush(e);
+
+        } else {
+            carousel = false;
+            e.preventDefault();
+            startX = e.clientX;
+            startY = e.clientY;
+            down = e.ctrlKey || e.metaKey ? 2 : 1;
+        }
     });
+
     canvas.addEventListener("contextmenu", (e) => {
         carousel = false;
         e.preventDefault();
@@ -1016,6 +1119,9 @@ async function main() {
     });
 
     canvas.addEventListener("mousemove", (e) => {
+        if ((brushMode || eraserMode) && down) {
+            applyBrush(e);
+        } else {
         e.preventDefault();
         if (down == 1) {
             let inv = invert4(viewMatrix);
@@ -1050,13 +1156,16 @@ async function main() {
             startX = e.clientX;
             startY = e.clientY;
         }
+    }
     });
-    canvas.addEventListener("mouseup", (e) => {
-        e.preventDefault();
+    canvas.addEventListener("mouseup", () => {
         down = false;
-        startX = 0;
-        startY = 0;
     });
+
+    window.changeBrushColor = function(color) {
+        brushColor = color;
+        console.log("Brush color changed to:", brushColor);
+    }
 
     let altX = 0,
         altY = 0;
@@ -1156,6 +1265,158 @@ async function main() {
         },
         { passive: false },
     );
+    // Brush tool functions
+    function startBrushing(e) {
+        down = true;
+        applyBrush(e);
+    }
+
+    function continueBrushing(e) {
+        if (down) {
+            applyBrush(e);
+        }
+    }
+
+    function stopBrushing() {
+        down = false;
+    }
+
+    function applyBrush(e) {
+        console.log("Applying " + (eraserMode ? "eraser" : "brush"));
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const invViewProj = invert4(multiply4(projectionMatrix, viewMatrix));
+        const rayOrigin = multiplyVec4(invViewProj, [x, y, -1, 1]);
+        const rayDir = multiplyVec4(invViewProj, [x, y, 1, 1]);
+        
+        for (let i = 0; i < 3; i++) {
+            rayOrigin[i] /= rayOrigin[3];
+            rayDir[i] = rayDir[i] / rayDir[3] - rayOrigin[i];
+        }
+        
+        // Find affected splats
+        const affectedSplats = findAffectedSplats(rayOrigin, rayDir);
+        console.log("Affected splats:", affectedSplats.length);
+        
+        // Update colors of affected splats
+        updateSplatColors(affectedSplats);
+        
+        // Update the texture
+        updateTexture();
+    }
+
+    
+    function findAffectedSplats(rayOrigin, rayDir) {
+        const affectedSplats = [];
+        const f_buffer = new Float32Array(splatData.buffer);
+        for (let i = 0; i < vertexCount; i++) {
+            const splatPos = [
+                f_buffer[i * 8],
+                f_buffer[i * 8 + 1],
+                f_buffer[i * 8 + 2]
+            ];
+            
+            const t = rayIntersectsSphere(rayOrigin, rayDir, splatPos, brushSize);
+            if (t >= 0) {
+                affectedSplats.push(i);
+            }
+        }
+        return affectedSplats;
+    }
+
+            
+    function updateSplatColors(affectedSplats) {
+        console.log("Updating splat colors for", affectedSplats.length, "splats");
+        const u_buffer = new Uint8Array(splatData.buffer);
+        for (const i of affectedSplats) {
+            const colorOffset = i * 32 + 24;  // 32 bytes per splat, color starts at byte 24
+            if (eraserMode) {
+                // Restore original color
+                u_buffer[colorOffset] = originalColors[colorOffset];
+                u_buffer[colorOffset + 1] = originalColors[colorOffset + 1];
+                u_buffer[colorOffset + 2] = originalColors[colorOffset + 2];
+                u_buffer[colorOffset + 3] = originalColors[colorOffset + 3];
+                console.log(`Erased splat ${i} to original color:`, 
+                            originalColors[colorOffset], 
+                            originalColors[colorOffset + 1], 
+                            originalColors[colorOffset + 2], 
+                            originalColors[colorOffset + 3]);
+            } else {
+                // Apply brush color
+                u_buffer[colorOffset] = brushColor[0];
+                u_buffer[colorOffset + 1] = brushColor[1];
+                u_buffer[colorOffset + 2] = brushColor[2];
+                u_buffer[colorOffset + 3] = brushColor[3];
+                console.log(`Painted splat ${i} with color:`, brushColor);
+            }
+        }
+    }
+    
+    function undo() {
+        if (undoStack.length === 0) {
+            console.log("Nothing to undo");
+            return;
+        }
+
+        const lastChange = undoStack.pop();
+        const u_buffer = new Uint8Array(splatData.buffer);
+
+        for (const change of lastChange) {
+            const colorOffset = change.index * 32 + 24;
+            u_buffer[colorOffset] = change.oldColor[0];
+            u_buffer[colorOffset + 1] = change.oldColor[1];
+            u_buffer[colorOffset + 2] = change.oldColor[2];
+            u_buffer[colorOffset + 3] = change.oldColor[3];
+        }
+
+        console.log("Undo applied");
+        updateTexture();
+    }
+    function getOriginalColor(index) {
+        // This is a placeholder. You need to implement this based on how you store original colors
+        // For now, let's return a default color
+        return [128, 128, 128, 255]; // Gray color
+    }
+        
+    
+    function updateTexture() {
+        console.log("Updating texture");
+        // Re-generate the texture data
+        worker.postMessage({
+            buffer: splatData.buffer,
+            vertexCount: vertexCount
+        });
+    }
+    function rayIntersectsSphere(rayOrigin, rayDir, sphereCenter, sphereRadius) {
+        const oc = [
+            rayOrigin[0] - sphereCenter[0],
+            rayOrigin[1] - sphereCenter[1],
+            rayOrigin[2] - sphereCenter[2]
+        ];
+        
+        const a = dot(rayDir, rayDir);
+        const b = 2 * dot(oc, rayDir);
+        const c = dot(oc, oc) - sphereRadius * sphereRadius;
+        const discriminant = b * b - 4 * a * c;
+        
+        if (discriminant < 0) {
+            return -1;
+        } else {
+            return (-b - Math.sqrt(discriminant)) / (2 * a);
+        }
+    }
+
+    function dot(a, b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    // Add event listener for brush size
+    document.getElementById('brush-size').addEventListener('input', function() {
+        brushSize = parseFloat(this.value);
+        document.getElementById('brush-size-value').textContent = this.value;
+    });
 
     let jumpDelta = 0;
     let vertexCount = 0;
@@ -1180,32 +1441,34 @@ async function main() {
         let inv = invert4(viewMatrix);
         let shiftKey = activeKeys.includes("Shift") || activeKeys.includes("ShiftLeft") || activeKeys.includes("ShiftRight")
 
-        if (activeKeys.includes("ArrowUp")) {
+        if(!brushMode){
+
+        if (activeKeys.includes("KeyW")) {
             if (shiftKey) {
                 inv = translate4(inv, 0, -0.03, 0);
             } else {
                 inv = translate4(inv, 0, 0, 0.1);
             }
         }
-        if (activeKeys.includes("ArrowDown")) {
+        if (activeKeys.includes("KeyS")) {
             if (shiftKey) {
                 inv = translate4(inv, 0, 0.03, 0);
             } else {
                 inv = translate4(inv, 0, 0, -0.1);
             }
         }
-        if (activeKeys.includes("ArrowLeft"))
+        if (activeKeys.includes("KeyA"))
             inv = translate4(inv, -0.03, 0, 0);
         //
-        if (activeKeys.includes("ArrowRight"))
+        if (activeKeys.includes("KeyD"))
             inv = translate4(inv, 0.03, 0, 0);
         // inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
+        if (activeKeys.includes("ArrowLeft")) inv = rotate4(inv, -0.01, 0, 1, 0);
+        if (activeKeys.includes("ArrowRight")) inv = rotate4(inv, 0.01, 0, 1, 0);
         if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);
         if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
-        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
+        if (activeKeys.includes("ArrowUp")) inv = rotate4(inv, 0.005, 1, 0, 0);
+        if (activeKeys.includes("ArrowDown")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         let isJumping = activeKeys.includes("Space");
@@ -1318,7 +1581,7 @@ async function main() {
         } else {
             jumpDelta = Math.max(0, jumpDelta - 0.05);
         }
-
+    }
         let inv2 = invert4(viewMatrix);
         inv2 = translate4(inv2, 0, -jumpDelta, 0);
         inv2 = rotate4(inv2, -0.1 * jumpDelta, 1, 0, 0);
@@ -1442,9 +1705,39 @@ async function main() {
             buffer: splatData.buffer,
             vertexCount: Math.floor(bytesRead / rowLength),
         });
+
+    originalColors = new Uint8Array(splatData.length);
+    originalColors.set(new Uint8Array(splatData.buffer));
+
+    // Define getOriginalColor function
+    function getOriginalColor(index) {
+        const colorOffset = index * 32 + 24;
+        return [
+            originalColors[colorOffset],
+            originalColors[colorOffset + 1],
+            originalColors[colorOffset + 2],
+            originalColors[colorOffset + 3]
+        ];
+    }   
 }
 
-main().catch((err) => {
-    document.getElementById("spinner").style.display = "none";
-    document.getElementById("message").innerText = err.toString();
+document.addEventListener('DOMContentLoaded', () => {
+    main().catch((err) => {
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("message").innerText = err.toString();
+    });
+
+    // Move the brush size event listener here
+    const brushSizeInput = document.getElementById('brush-size');
+    const brushSizeValue = document.getElementById('brush-size-value');
+    if (brushSizeInput && brushSizeValue) {
+        brushSizeInput.addEventListener('input', function() {
+            const newSize = parseFloat(this.value);
+            updateBrushSize(newSize);
+            brushSizeValue.textContent = newSize.toFixed(2);
+        });
+    } else {
+        console.error("Brush size input or value display element not found");
+    }
 });
+
