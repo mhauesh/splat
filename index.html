@@ -274,13 +274,206 @@ other
 		<div id="caminfo">
 			<span id="camid"></span>
 		</div>
-		<div id="brush-controls">
-			<button id="brush-mode" onclick="toggleBrushMode()">Brush: OFF</button>
-			<button id="eraser-mode" onclick="toggleEraserMode()">Eraser: OFF</button>
-			<input type="color" id="brush-color" onchange="changeBrushColor(hexToRgb(this.value))">
-			<input type="range" id="brush-size" min="0.01" max="1" step="0.01" value="0.1">
-			<span id="brush-size-value">0.1</span>
-		</div>
+		<style>
+			:root {
+			  --primary-color: #3498db;
+			  --secondary-color: #2c3e50;
+			  --background-color: #ecf0f1;
+			  --text-color: #34495e;
+			  --border-radius: 4px;
+			}
+		  
+			#brush-controls {
+			  background-color: var(--background-color);
+			  padding: 20px;
+			  border-radius: var(--border-radius);
+			  font-family: "Helvetica Neue", Arial, sans-serif;
+			  color: var(--text-color);
+			  max-width: 400px;
+			  margin: 0 auto;
+			  -webkit-font-smoothing: none;
+			  -moz-osx-font-smoothing: grayscale;
+			  font-size: 16px;
+			  line-height: 1.5;
+			}
+		  
+			.button-group {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+}
+
+			.button-group button {
+				flex: 1;
+				margin: 0 4px;
+				padding: 8px 4px;
+				background-color: var(--primary-color);
+				color: white;
+				border: none;
+				border-radius: var(--border-radius);
+				cursor: pointer;
+				transition: background-color 0.3s;
+				font-weight: bold;
+				font-size: 14px;
+				letter-spacing: 0.5px;
+				text-rendering: optimizeSpeed;
+			}
+
+			.button-group button.active {
+				background-color: var(--secondary-color);
+			}
+
+			.button-group button:hover {
+				background-color: var(--secondary-color);
+			}
+
+			/* Add this to change the cursor on the canvas based on the mode */
+			#canvas {
+				cursor: default;
+			}
+
+			#canvas.tool-active {
+				cursor: crosshair;
+			}
+		  
+			.control-group {
+			  margin-bottom: 15px;
+			}
+		  
+			.control-group label {
+			  display: block;
+			  margin-bottom: 5px;
+			  font-weight: bold;
+			}
+		  
+			.slider-container {
+			  display: flex;
+			  align-items: center;
+			}
+		  
+			.slider-container input[type="range"] {
+			  flex: 1;
+			  margin-right: 10px;
+			}
+		  
+			.slider-container span {
+			  min-width: 30px;
+			  text-align: right;
+			}
+		  
+			input[type="color"] {
+			  width: 50px;
+			  height: 50px;
+			  border: none;
+			  border-radius: var(--border-radius);
+			  cursor: pointer;
+			}
+		  
+			input[type="range"] {
+			  -webkit-appearance: none;
+			  width: 100%;
+			  height: 10px;
+			  border-radius: 5px;
+			  background: #d3d3d3;
+			  outline: none;
+			}
+		  
+			input[type="range"]::-webkit-slider-thumb {
+			  -webkit-appearance: none;
+			  appearance: none;
+			  width: 20px;
+			  height: 20px;
+			  border-radius: 50%;
+			  background: var(--primary-color);
+			  cursor: pointer;
+			}
+		  
+			input[type="range"]::-moz-range-thumb {
+			  width: 20px;
+			  height: 20px;
+			  border-radius: 50%;
+			  background: var(--primary-color);
+			  cursor: pointer;
+			}
+		  
+			/* Sharp text rendering */
+			* {
+			  text-rendering: optimizeSpeed;
+			  -webkit-font-smoothing: none;
+			  -moz-osx-font-smoothing: grayscale;
+			}
+		  </style>
+		  
+		  <div id="brush-controls">
+			<div class="button-group">
+				<button id="cursor-mode" onclick="toggleMode('cursor')">Cursor</button>
+				<button id="brush-mode" onclick="toggleMode('brush')">Brush</button>
+				<button id="eraser-mode" onclick="toggleMode('eraser')">Eraser</button>
+				<button id="dodge-mode" onclick="toggleMode('dodge')">Dodge</button>
+				<button id="burn-mode" onclick="toggleMode('burn')">Burn</button>
+			</div>
+		  
+			<div class="control-group">
+			  <label for="brush-color">Brush Color:</label>
+			  <input type="color" id="brush-color" onchange="changeBrushColor(hexToRgb(this.value))">
+			</div>
+		  
+			<div class="control-group">
+			  <label for="brush-size">Brush Size: <span id="brush-size-value">0.1</span></label>
+			  <div class="slider-container">
+				<input type="range" id="brush-size" min="0.01" max="1" step="0.01" value="0.1" oninput="updateSliderValue('brush-size')">
+			  </div>
+			</div>
+		  
+			<div class="control-group">
+			  <label for="dodge-strength">Dodge Strength: <span id="dodge-strength-value">0.2</span></label>
+			  <div class="slider-container">
+				<input type="range" id="dodge-strength" min="0" max="1" step="0.1" value="0.2" oninput="updateSliderValue('dodge-strength')">
+			  </div>
+			</div>
+		  
+			<div class="control-group">
+			  <label for="burn-strength">Burn Strength: <span id="burn-strength-value">0.2</span></label>
+			  <div class="slider-container">
+				<input type="range" id="burn-strength" min="0" max="1" step="0.1" value="0.2" oninput="updateSliderValue('burn-strength')">
+			  </div>
+			</div>
+		  </div>
+		  
+		  <script>
+			function updateSliderValue(sliderId) {
+			  const slider = document.getElementById(sliderId);
+			  const valueSpan = document.getElementById(sliderId + '-value');
+			  valueSpan.textContent = parseFloat(slider.value).toFixed(2);
+			  
+			  // Call your existing update functions here
+			  if (sliderId === 'brush-size') {
+				updateBrushSize(slider.value);
+			  } else if (sliderId === 'dodge-strength') {
+				updateDodgeStrength(slider.value);
+			  } else if (sliderId === 'burn-strength') {
+				updateBurnStrength(slider.value);
+			  }
+			}
+		  
+			function toggleMode(mode) {
+			  const modes = ['brush', 'eraser', 'dodge', 'burn'];
+			  modes.forEach(m => {
+				const button = document.getElementById(m + '-mode');
+				if (m === mode) {
+				  button.classList.toggle('active');
+				} else {
+				  button.classList.remove('active');
+				}
+			  });
+		  
+			  // Call your existing toggle functions here
+			  if (mode === 'brush') toggleBrushMode();
+			  else if (mode === 'eraser') toggleEraserMode();
+			  else if (mode === 'dodge') toggleDodgeMode();
+			  else if (mode === 'burn') toggleBurnMode();
+			}
+		  </script>
 		<script src="main.js"></script>
 	</body>
 </html>

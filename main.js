@@ -758,45 +758,137 @@ let defaultViewMatrix = [
 ];
 let viewMatrix = defaultViewMatrix;
 
+function toggleMode(mode) {
+    const modes = ['cursor', 'brush', 'eraser', 'dodge', 'burn'];
+    modes.forEach(m => {
+        const button = document.getElementById(m + '-mode');
+        if (m === mode) {
+            button.classList.toggle('active');
+        } else {
+            button.classList.remove('active');
+        }
+    });
+
+    // Reset all mode flags
+    cursorMode = false;
+    brushMode = false;
+    eraserMode = false;
+    dodgeMode = false;
+    burnMode = false;
+
+    // Set the active mode
+    switch(mode) {
+        case 'cursor':
+            cursorMode = true;
+            break;
+        case 'brush':
+            brushMode = true;
+            break;
+        case 'eraser':
+            eraserMode = true;
+            break;
+        case 'dodge':
+            dodgeMode = true;
+            break;
+        case 'burn':
+            burnMode = true;
+            break;
+    }
+
+    console.log("Current mode:", mode, "is active:", eval(mode + 'Mode'));
+    updateUIButtons();
+    updateCanvasCursor();
+}
+
 let brushMode = false;
 let eraserMode = false;
-let brushColor = [0, 0, 0, 255]; // Red color by default
+let brushColor = [0, 0, 0, 255]; // Black color by default
 let brushSize = 0.01; // Radius in world space
 let undoStack = [];
 const MAX_UNDO_STEPS = 50;
 let originalColors;
+let dodgeMode = false;
+let dodgeStrength = 0.2; // Adjustable strength of the dodge effect
+let burnMode = false;
+let burnStrength = 0.2; // Adjustable strength of the burn effect
 
 function updateBrushSize(newSize) {
     brushSize = newSize;
     console.log("Brush size updated:", brushSize);
 }
+/*
+window.toggleBrushMode = function() {
+    brushMode = !brushMode;
+    eraserMode = false;
+    dodgeMode = false;
+    console.log("Brush mode:", brushMode);
+    updateUIButtons();
+}
 
 window.toggleEraserMode = function() {
     eraserMode = !eraserMode;
-    if (eraserMode) brushMode = false;
+    brushMode = false;
+    dodgeMode = false;
     console.log("Eraser mode:", eraserMode);
     updateUIButtons();
 }
 
+
+window.toggleDodgeMode = function() {
+    dodgeMode = !dodgeMode;
+    brushMode = false;
+    eraserMode = false;
+    console.log("Dodge mode:", dodgeMode);
+    updateUIButtons();
+}
+window.toggleBurnMode = function() {
+    burnMode = !burnMode;
+    brushMode = false;
+    eraserMode = false;
+    dodgeMode = false;
+    console.log("Burn mode:", burnMode);
+    updateUIButtons();
+}
+    */
+function updateCanvasCursor() {
+    const canvas = document.getElementById('canvas');  // Make sure this matches your canvas ID
+    if (cursorMode) {
+        canvas.style.cursor = 'default';
+    } else {
+        canvas.style.cursor = 'crosshair';  // Or any other appropriate cursor for the active tool
+    }
+}
+window.toggleCursorMode = function() {
+    toggleMode('cursor');
+}
 window.toggleBrushMode = function() {
-    brushMode = !brushMode;
-    eraserMode = false; // Turn off eraser mode when brush is on
-    console.log("Brush mode:", brushMode);
-    const brushButton = document.getElementById('brush-mode');
-    if (brushButton) {
-        brushButton.textContent = brushMode ? 'Brush: ON' : 'Brush: OFF';
-    }
-    const eraserButton = document.getElementById('eraser-mode');
-    if (eraserButton) {
-        eraserButton.textContent = 'Eraser: OFF';
-    }
+    toggleMode('brush');
+}
+
+window.toggleEraserMode = function() {
+    toggleMode('eraser');
+}
+
+window.toggleDodgeMode = function() {
+    toggleMode('dodge');
+}
+
+window.toggleBurnMode = function() {
+    toggleMode('burn');
 }
 
 function updateUIButtons() {
+    const cursorButton = document.getElementById('cursor-mode');
     const brushButton = document.getElementById('brush-mode');
     const eraserButton = document.getElementById('eraser-mode');
-    if (brushButton) brushButton.textContent = brushMode ? 'Brush: ON' : 'Brush: OFF';
-    if (eraserButton) eraserButton.textContent = eraserMode ? 'Eraser: ON' : 'Eraser: OFF';
+    const dodgeButton = document.getElementById('dodge-mode');
+    const burnButton = document.getElementById('burn-mode');
+
+    cursorButton.classList.toggle('active', cursorMode);
+    brushButton.classList.toggle('active', brushMode);
+    eraserButton.classList.toggle('active', eraserMode);
+    dodgeButton.classList.toggle('active', dodgeMode);
+    burnButton.classList.toggle('active', burnMode);
 }
 
 window.changeBrushColor = function(color) {
@@ -1042,6 +1134,16 @@ async function main() {
             e.preventDefault(); // Prevent the browser's default undo
             undo();
         }
+        if (e.code === "KeyN") {
+            toggleDodgeMode();
+        }
+        if (e.code === "KeyM") {
+            toggleBurnMode();
+        }
+        if(e.code == "KeyV")
+        {
+            toggleCursorMode();
+        }
     });
     window.addEventListener("keyup", (e) => {
         activeKeys = activeKeys.filter((k) => k !== e.code);
@@ -1097,10 +1199,9 @@ async function main() {
     let startX, startY, down;
 
     canvas.addEventListener("mousedown", (e) => {
-        if (brushMode || eraserMode) {
+        if (brushMode || eraserMode || dodgeMode || burnMode) {
             down = true;
-            applyBrush(e);
-
+            applyTool(e);
         } else {
             carousel = false;
             e.preventDefault();
@@ -1119,8 +1220,8 @@ async function main() {
     });
 
     canvas.addEventListener("mousemove", (e) => {
-        if ((brushMode || eraserMode) && down) {
-            applyBrush(e);
+        if ((brushMode || eraserMode || dodgeMode || burnMode) && down) {
+            applyTool(e);
         } else {
         e.preventDefault();
         if (down == 1) {
@@ -1281,8 +1382,8 @@ async function main() {
         down = false;
     }
 
-    function applyBrush(e) {
-        console.log("Applying " + (eraserMode ? "eraser" : "brush"));
+    function applyTool(e) {
+        console.log("Applying " + (eraserMode ? "eraser" : dodgeMode ? "dodge" : burnMode ? "burn" : "brush"));    
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX - rect.left) / rect.width * 2 - 1;
         const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1296,17 +1397,37 @@ async function main() {
             rayDir[i] = rayDir[i] / rayDir[3] - rayOrigin[i];
         }
         
-        // Find affected splats
         const affectedSplats = findAffectedSplats(rayOrigin, rayDir);
         console.log("Affected splats:", affectedSplats.length);
         
-        // Update colors of affected splats
         updateSplatColors(affectedSplats);
         
-        // Update the texture
         updateTexture();
     }
-
+    
+    function applyBrush(e) {
+        if (!brushMode && !eraserMode && !dodgeMode && !burnMode) return;
+        console.log("Applying " + (eraserMode ? "eraser" : dodgeMode ? "dodge" : "brush"));
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        const invViewProj = invert4(multiply4(projectionMatrix, viewMatrix));
+        const rayOrigin = multiplyVec4(invViewProj, [x, y, -1, 1]);
+        const rayDir = multiplyVec4(invViewProj, [x, y, 1, 1]);
+        
+        for (let i = 0; i < 3; i++) {
+            rayOrigin[i] /= rayOrigin[3];
+            rayDir[i] = rayDir[i] / rayDir[3] - rayOrigin[i];
+        }
+        
+        const affectedSplats = findAffectedSplats(rayOrigin, rayDir);
+        console.log("Affected splats:", affectedSplats.length);
+        
+        updateSplatColors(affectedSplats);
+        
+        updateTexture();
+    }    
     
     function findAffectedSplats(rayOrigin, rayDir) {
         const affectedSplats = [];
@@ -1327,32 +1448,59 @@ async function main() {
     }
 
             
-    function updateSplatColors(affectedSplats) {
-        console.log("Updating splat colors for", affectedSplats.length, "splats");
-        const u_buffer = new Uint8Array(splatData.buffer);
-        for (const i of affectedSplats) {
-            const colorOffset = i * 32 + 24;  // 32 bytes per splat, color starts at byte 24
-            if (eraserMode) {
-                // Restore original color
-                u_buffer[colorOffset] = originalColors[colorOffset];
-                u_buffer[colorOffset + 1] = originalColors[colorOffset + 1];
-                u_buffer[colorOffset + 2] = originalColors[colorOffset + 2];
-                u_buffer[colorOffset + 3] = originalColors[colorOffset + 3];
-                console.log(`Erased splat ${i} to original color:`, 
-                            originalColors[colorOffset], 
-                            originalColors[colorOffset + 1], 
-                            originalColors[colorOffset + 2], 
-                            originalColors[colorOffset + 3]);
-            } else {
-                // Apply brush color
-                u_buffer[colorOffset] = brushColor[0];
-                u_buffer[colorOffset + 1] = brushColor[1];
-                u_buffer[colorOffset + 2] = brushColor[2];
-                u_buffer[colorOffset + 3] = brushColor[3];
-                console.log(`Painted splat ${i} with color:`, brushColor);
-            }
+function updateSplatColors(affectedSplats) {
+    console.log("Updating splat colors for", affectedSplats.length, "splats");
+    const u_buffer = new Uint8Array(splatData.buffer);
+    let changes = [];
+
+    for (const i of affectedSplats) {
+        const colorOffset = i * 32 + 24;  // 32 bytes per splat, color starts at byte 24
+        const oldColor = [
+            u_buffer[colorOffset],
+            u_buffer[colorOffset + 1],
+            u_buffer[colorOffset + 2],
+            u_buffer[colorOffset + 3]
+        ];
+
+        if (eraserMode) {
+            // Restore original color
+            u_buffer[colorOffset] = originalColors[colorOffset];
+            u_buffer[colorOffset + 1] = originalColors[colorOffset + 1];
+            u_buffer[colorOffset + 2] = originalColors[colorOffset + 2];
+            u_buffer[colorOffset + 3] = originalColors[colorOffset + 3];
+        } else if (dodgeMode) {
+            // Apply dodge effect
+            u_buffer[colorOffset] = Math.min(255, oldColor[0] + (255 - oldColor[0]) * dodgeStrength);
+            u_buffer[colorOffset + 1] = Math.min(255, oldColor[1] + (255 - oldColor[1]) * dodgeStrength);
+            u_buffer[colorOffset + 2] = Math.min(255, oldColor[2] + (255 - oldColor[2]) * dodgeStrength);
+            // Alpha remains unchanged
+        } else if (burnMode) {
+            // Apply burn effect
+            u_buffer[colorOffset] = Math.max(0, oldColor[0] - (oldColor[0] * burnStrength));
+            u_buffer[colorOffset + 1] = Math.max(0, oldColor[1] - (oldColor[1] * burnStrength));
+            u_buffer[colorOffset + 2] = Math.max(0, oldColor[2] - (oldColor[2] * burnStrength));
+            // Alpha remains unchanged
+        } else {
+            // Apply brush color
+            u_buffer[colorOffset] = brushColor[0];
+            u_buffer[colorOffset + 1] = brushColor[1];
+            u_buffer[colorOffset + 2] = brushColor[2];
+            u_buffer[colorOffset + 3] = brushColor[3];
         }
+
+        changes.push({
+            index: i,
+            oldColor: oldColor,
+            newColor: [u_buffer[colorOffset], u_buffer[colorOffset + 1], u_buffer[colorOffset + 2], u_buffer[colorOffset + 3]]
+        });
     }
+
+    undoStack.push(changes);
+    if (undoStack.length > MAX_UNDO_STEPS) {
+        undoStack.shift();
+    }
+}
+
     
     function undo() {
         if (undoStack.length === 0) {
@@ -1418,6 +1566,16 @@ async function main() {
         document.getElementById('brush-size-value').textContent = this.value;
     });
 
+    document.getElementById('dodge-strength').addEventListener('input', function() {
+        dodgeStrength = parseFloat(this.value);
+        document.getElementById('dodge-strength-value').textContent = this.value;
+    });    
+    document.getElementById('burn-strength').addEventListener('input', function() {
+        burnStrength = parseFloat(this.value);
+        document.getElementById('burn-strength-value').textContent = this.value;
+    });    
+    document.getElementById('burn-mode').addEventListener('click', toggleBurnMode);
+
     let jumpDelta = 0;
     let vertexCount = 0;
 
@@ -1441,8 +1599,7 @@ async function main() {
         let inv = invert4(viewMatrix);
         let shiftKey = activeKeys.includes("Shift") || activeKeys.includes("ShiftLeft") || activeKeys.includes("ShiftRight")
 
-        if(!brushMode){
-
+        if(!brushMode && !eraserMode && !dodgeMode && !burnMode){
         if (activeKeys.includes("KeyW")) {
             if (shiftKey) {
                 inv = translate4(inv, 0, -0.03, 0);
@@ -1722,6 +1879,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    toggleMode('cursor');
     main().catch((err) => {
         document.getElementById("spinner").style.display = "none";
         document.getElementById("message").innerText = err.toString();
