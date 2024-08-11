@@ -274,206 +274,159 @@ other
 		<div id="caminfo">
 			<span id="camid"></span>
 		</div>
-		<style>
-			:root {
-			  --primary-color: #3498db;
-			  --secondary-color: #2c3e50;
-			  --background-color: #ecf0f1;
-			  --text-color: #34495e;
-			  --border-radius: 4px;
-			}
-		  
-			#brush-controls {
-			  background-color: var(--background-color);
-			  padding: 20px;
-			  border-radius: var(--border-radius);
-			  font-family: "Helvetica Neue", Arial, sans-serif;
-			  color: var(--text-color);
-			  max-width: 400px;
-			  margin: 0 auto;
-			  -webkit-font-smoothing: none;
-			  -moz-osx-font-smoothing: grayscale;
-			  font-size: 16px;
-			  line-height: 1.5;
-			}
-		  
-			.button-group {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 15px;
-}
-
-			.button-group button {
-				flex: 1;
-				margin: 0 4px;
-				padding: 8px 4px;
-				background-color: var(--primary-color);
-				color: white;
-				border: none;
-				border-radius: var(--border-radius);
-				cursor: pointer;
-				transition: background-color 0.3s;
-				font-weight: bold;
-				font-size: 14px;
-				letter-spacing: 0.5px;
-				text-rendering: optimizeSpeed;
-			}
-
-			.button-group button.active {
-				background-color: var(--secondary-color);
-			}
-
-			.button-group button:hover {
-				background-color: var(--secondary-color);
-			}
-
-			/* Add this to change the cursor on the canvas based on the mode */
-			#canvas {
-				cursor: default;
-			}
-
-			#canvas.tool-active {
-				cursor: crosshair;
-			}
-		  
-			.control-group {
-			  margin-bottom: 15px;
-			}
-		  
-			.control-group label {
-			  display: block;
-			  margin-bottom: 5px;
-			  font-weight: bold;
-			}
-		  
-			.slider-container {
-			  display: flex;
-			  align-items: center;
-			}
-		  
-			.slider-container input[type="range"] {
-			  flex: 1;
-			  margin-right: 10px;
-			}
-		  
-			.slider-container span {
-			  min-width: 30px;
-			  text-align: right;
-			}
-		  
-			input[type="color"] {
-			  width: 50px;
-			  height: 50px;
-			  border: none;
-			  border-radius: var(--border-radius);
-			  cursor: pointer;
-			}
-		  
-			input[type="range"] {
-			  -webkit-appearance: none;
-			  width: 100%;
-			  height: 10px;
-			  border-radius: 5px;
-			  background: #d3d3d3;
-			  outline: none;
-			}
-		  
-			input[type="range"]::-webkit-slider-thumb {
-			  -webkit-appearance: none;
-			  appearance: none;
-			  width: 20px;
-			  height: 20px;
-			  border-radius: 50%;
-			  background: var(--primary-color);
-			  cursor: pointer;
-			}
-		  
-			input[type="range"]::-moz-range-thumb {
-			  width: 20px;
-			  height: 20px;
-			  border-radius: 50%;
-			  background: var(--primary-color);
-			  cursor: pointer;
-			}
-		  
-			/* Sharp text rendering */
-			* {
-			  text-rendering: optimizeSpeed;
-			  -webkit-font-smoothing: none;
-			  -moz-osx-font-smoothing: grayscale;
-			}
-		  </style>
-		  
-		  <div id="brush-controls">
-			<div class="button-group">
+		<div id="control-panel">
+			<div class="panel-section">
+			  <div class="new-button-group">
 				<button id="cursor-mode" onclick="toggleMode('cursor')">Cursor</button>
 				<button id="brush-mode" onclick="toggleMode('brush')">Brush</button>
 				<button id="eraser-mode" onclick="toggleMode('eraser')">Eraser</button>
 				<button id="dodge-mode" onclick="toggleMode('dodge')">Dodge</button>
 				<button id="burn-mode" onclick="toggleMode('burn')">Burn</button>
+				<button id="screenshot-btn">Screenshot</button>
+			  </div>
 			</div>
 		  
-			<div class="control-group">
+			<div class="panel-section">
 			  <label for="brush-color">Brush Color:</label>
 			  <input type="color" id="brush-color" onchange="changeBrushColor(hexToRgb(this.value))">
 			</div>
 		  
-			<div class="control-group">
-			  <label for="brush-size">Brush Size: <span id="brush-size-value">0.1</span></label>
-			  <div class="slider-container">
-				<input type="range" id="brush-size" min="0.01" max="1" step="0.01" value="0.1" oninput="updateSliderValue('brush-size')">
+			<div class="panel-section sliders">
+			  <div class="slider-group">
+				<label for="brush-size">Brush Size: <span id="brush-size-value">0.01</span></label>
+				<input type="range" id="brush-size" min="0.001" max="0.2" step="0.001" value="0.01" oninput="updateSliderValue('brush-size')">
 			  </div>
-			</div>
-		  
-			<div class="control-group">
-			  <label for="dodge-strength">Dodge Strength: <span id="dodge-strength-value">0.2</span></label>
-			  <div class="slider-container">
+			  <div class="slider-group">
+				<label for="dodge-strength">Dodge: <span id="dodge-strength-value">0.2</span></label>
 				<input type="range" id="dodge-strength" min="0" max="1" step="0.1" value="0.2" oninput="updateSliderValue('dodge-strength')">
 			  </div>
+			  <div class="slider-group">
+				<label for="burn-strength">Burn: <span id="burn-strength-value">0.2</span></label>
+				<input type="range" id="burn-strength" min="0" max="1" step="0.1" value="0.2" oninput="updateSliderValue('burn-strength')">
+			  </div>
 			</div>
 		  
-			<div class="control-group">
-			  <label for="burn-strength">Burn Strength: <span id="burn-strength-value">0.2</span></label>
-			  <div class="slider-container">
-				<input type="range" id="burn-strength" min="0" max="1" step="0.1" value="0.2" oninput="updateSliderValue('burn-strength')">
+			<div class="panel-section sliders">
+			  <div class="slider-group">
+				<label for="exposure">Exposure: <span id="exposure-value">0</span></label>
+				<input type="range" id="exposure" min="-2" max="2" step="0.1" value="0" oninput="updateSliderValue('exposure')">
+			  </div>
+			  <div class="slider-group">
+				<label for="focal-length">Focal Length: <span id="focal-length-value">50</span></label>
+				<input type="range" id="focal-length" min="20" max="200" step="1" value="50" oninput="updateSliderValue('focal-length')">
+			  </div>
+			  <div class="slider-group">
+				<label for="aperture">Aperture: <span id="aperture-value">5.6</span></label>
+				<input type="range" id="aperture" min="1" max="22" step="0.1" value="5.6" oninput="updateSliderValue('aperture')">
 			  </div>
 			</div>
 		  </div>
 		  
+		  <style>
+		  #control-panel {
+			position: absolute;
+			top: 10px;
+			right: 10px;
+			background-color: rgba(0, 0, 0, 0.7);
+			color: white;
+			padding: 15px;
+			border-radius: 10px;
+			width: 300px;
+			font-family: Arial, sans-serif;
+		  }
+		  
+		  .panel-section {
+			margin-bottom: 15px;
+		  }
+		  
+		  .new-button-group {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 5px;
+		  }
+		  
+		  .new-button-group button {
+			background-color: #6c757d;
+			color: white;
+			border: none;
+			border-radius: 5px;
+			cursor: pointer;
+			transition: background-color 0.3s, transform 0.1s;
+			font-weight: bold;
+			font-size: 12px;
+			padding: 8px 5px;
+			text-align: center;
+		  }
+		  
+		  .new-button-group button.active {
+			background-color: #28a745;
+			transform: scale(1.05);
+		  }
+		  
+		  .new-button-group button:hover {
+			opacity: 0.9;
+		  }
+		  
+		  .sliders .slider-group {
+			margin-bottom: 10px;
+		  }
+		  
+		  .sliders label {
+			display: block;
+			margin-bottom: 5px;
+			font-size: 14px;
+		  }
+		  
+		  .sliders input[type="range"] {
+			width: 100%;
+			margin-top: 5px;
+		  }
+		  
+		  #brush-color {
+			width: 100%;
+			height: 30px;
+			border: none;
+			border-radius: 5px;
+		  }
+		  </style>
+		  
 		  <script>
-			function updateSliderValue(sliderId) {
-			  const slider = document.getElementById(sliderId);
-			  const valueSpan = document.getElementById(sliderId + '-value');
-			  valueSpan.textContent = parseFloat(slider.value).toFixed(2);
-			  
-			  // Call your existing update functions here
-			  if (sliderId === 'brush-size') {
-				updateBrushSize(slider.value);
-			  } else if (sliderId === 'dodge-strength') {
-				updateDodgeStrength(slider.value);
-			  } else if (sliderId === 'burn-strength') {
-				updateBurnStrength(slider.value);
+		  function updateSliderValue(sliderId) {
+			const slider = document.getElementById(sliderId);
+			const valueSpan = document.getElementById(sliderId + '-value');
+			valueSpan.textContent = parseFloat(slider.value).toFixed(2);
+			
+			if (sliderId === 'brush-size') {
+			  updateBrushSize(slider.value);
+			} else if (sliderId === 'dodge-strength') {
+			  updateDodgeStrength(slider.value);
+			} else if (sliderId === 'burn-strength') {
+			  updateBurnStrength(slider.value);
+			} else if (sliderId === 'exposure' || sliderId === 'focal-length' || sliderId === 'aperture') {
+			  updateCameraControls();
+			}
+		  }
+		  
+		  function toggleMode(mode) {
+			const modes = ['cursor', 'brush', 'eraser', 'dodge', 'burn'];
+			modes.forEach(m => {
+			  const button = document.getElementById(m + '-mode');
+			  if (m === mode) {
+				button.classList.toggle('active');
+			  } else {
+				button.classList.remove('active');
 			  }
-			}
+			});
 		  
-			function toggleMode(mode) {
-			  const modes = ['brush', 'eraser', 'dodge', 'burn'];
-			  modes.forEach(m => {
-				const button = document.getElementById(m + '-mode');
-				if (m === mode) {
-				  button.classList.toggle('active');
-				} else {
-				  button.classList.remove('active');
-				}
-			  });
-		  
-			  // Call your existing toggle functions here
-			  if (mode === 'brush') toggleBrushMode();
-			  else if (mode === 'eraser') toggleEraserMode();
-			  else if (mode === 'dodge') toggleDodgeMode();
-			  else if (mode === 'burn') toggleBurnMode();
-			}
+			if (mode === 'brush') toggleBrushMode();
+			else if (mode === 'eraser') toggleEraserMode();
+			else if (mode === 'dodge') toggleDodgeMode();
+			else if (mode === 'burn') toggleBurnMode();
+			else if (mode === 'cursor') toggleCursorMode();
+		  }
 		  </script>
+		  
+			  
 		<script src="main.js"></script>
 	</body>
 </html>

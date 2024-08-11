@@ -678,12 +678,15 @@ uniform highp usampler2D u_texture;
 uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
+uniform float u_focalLength;
 
 in vec2 position;
 in int index;
 
 out vec4 vColor;
 out vec2 vPosition;
+out float vDepth;
+
 
 void main () {
     uvec4 cen = texelFetch(u_texture, ivec2((uint(index) & 0x3ffu) << 1, uint(index) >> 10), 0);
@@ -730,6 +733,12 @@ void main () {
         vCenter 
         + position.x * majorAxis / viewport 
         + position.y * minorAxis / viewport, 0.0, 1.0);
+    
+    float focalLengthFactor = u_focalLength / 50.0; //  50mm is the default
+    gl_Position.xy *= focalLengthFactor;
+
+    vDepth = gl_Position.z / gl_Position.w;
+
 
 }
 `.trim();
@@ -740,14 +749,23 @@ precision highp float;
 
 in vec4 vColor;
 in vec2 vPosition;
+in float vDepth;
+
+uniform float u_exposure;
+uniform float u_aperture;
 
 out vec4 fragColor;
 
 void main () {
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
-    float B = exp(A) * vColor.a;
-    fragColor = vec4(B * vColor.rgb, B);
+    
+    vec3 exposureAdjusted = vColor.rgb * pow(2.0, u_exposure);
+
+    float blurFactor = abs(vDepth - 1.0) * (1.0 / u_aperture);
+    float B = exp(A - blurFactor) * vColor.a;
+
+    fragColor = vec4(B * exposureAdjusted, B);
 }
 
 `.trim();
@@ -812,6 +830,202 @@ let dodgeStrength = 0.2; // Adjustable strength of the dodge effect
 let burnMode = false;
 let burnStrength = 0.2; // Adjustable strength of the burn effect
 
+// XR controls
+let xrSession = null;
+let xrRefSpace = null;
+let xrInlineSystem = null;
+let xrViewerSpace = null;
+let xrHitTestSource = null;
+
+async function initXR() {
+    console.log('Initializing WebXR...');
+    if (navigator.xr) {
+        try {
+            await checkXRFeatures();
+
+            const immersiveVRSupported = await navigator.xr.isSessionSupported('immersive-vr');
+            console.log('Immersive VR supported:', immersiveVRSupported);
+
+            if (immersiveVRSupported) {
+                console.log('Creating Enter VR button');
+                createEnterVRButton();
+            } else {
+                console.log('Immersive VR is not supported on this device/browser');
+            }
+        } catch (e) {
+            console.error('Error checking XR session support:', e);
+        }
+    } else {
+        console.error('WebXR is not available in this browser');
+    }
+}
+function createEnterVRButton() {
+    let enterVRButton = document.createElement('button');
+    enterVRButton.textContent = 'Enter VR';
+    enterVRButton.onclick = enterImmersiveVR;
+    styleButton(enterVRButton);
+    document.body.appendChild(enterVRButton);
+}
+
+function createEnterInlineButton() {
+    let enterInlineButton = document.createElement('button');
+    enterInlineButton.textContent = 'Enter Inline VR';
+    enterInlineButton.onclick = enterInlineSession;
+    styleButton(enterInlineButton);
+    document.body.appendChild(enterInlineButton);
+}
+
+function styleButton(button) {
+    button.style.position = 'absolute';
+    button.style.bottom = '20px';
+    button.style.right = '20px';
+    button.style.padding = '12px 24px';
+    button.style.fontSize = '18px';
+    button.style.backgroundColor = '#4CAF50';
+    button.style.color = 'white';
+    button.style.border = 'none';
+    button.style.borderRadius = '4px';
+    button.style.cursor = 'pointer';
+}
+
+async function enterImmersiveVR() {
+    console.log('Attempting to enter immersive VR...');
+    try {
+        xrSession = await navigator.xr.requestSession('immersive-vr', {
+            requiredFeatures: ['local-floor'],
+            optionalFeatures: ['bounded-floor', 'hand-tracking']
+        });
+    } catch (error) {
+        console.warn('Failed to start session with bounded-floor, trying without...');
+        try {
+            xrSession = await navigator.xr.requestSession('immersive-vr', {
+                requiredFeatures: ['local-floor'],
+                optionalFeatures: ['hand-tracking']
+            });
+        } catch (fallbackError) {
+            console.error('Detailed error entering immersive VR:', fallbackError);
+            console.error('Error name:', fallbackError.name);
+            console.error('Error message:', fallbackError.message);
+            console.error('Error stack:', fallbackError.stack);
+            alert(`Failed to enter immersive VR mode. Error: ${fallbackError.name} - ${fallbackError.message}`);
+            return;
+        }
+    }
+    
+    console.log('Immersive VR session created successfully');
+    await onSessionStarted(xrSession);
+}
+
+async function checkXRFeatures() {
+    if (!navigator.xr) {
+        console.error('WebXR not supported in this browser');
+        return;
+    }
+
+    const features = ['bounded-floor', 'local-floor', 'hand-tracking'];
+    for (const feature of features) {
+        try {
+            const isSupported = await navigator.xr.isSessionSupported('immersive-vr', {
+                requiredFeatures: [feature]
+            });
+            console.log(`Feature '${feature}' supported: ${isSupported}`);
+        } catch (error) {
+            console.warn(`Error checking support for '${feature}':`, error);
+        }
+    }
+}
+
+
+async function enterInlineSession() {
+    console.log('Attempting to enter inline session...');
+    try {
+        xrSession = await navigator.xr.requestSession('inline');
+        console.log('Inline session created successfully');
+        await onSessionStarted(xrSession);
+    } catch (error) {
+        console.error('Detailed error starting inline session:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        alert(`Failed to start inline session. Error: ${error.name} - ${error.message}`);
+    }
+}
+
+function checkSecureContext() {
+    if (window.isSecureContext === true) {
+        console.log('Running in a secure context');
+    } else {
+        console.warn('Not running in a secure context. WebXR may not be available.');
+        console.log('Current protocol:', window.location.protocol);
+        console.log('Current hostname:', window.location.hostname);
+    }
+}
+
+
+async function onSessionStarted(session) {
+    session.addEventListener('end', onSessionEnded);
+
+    // Set up WebGL for XR
+    await gl.makeXRCompatible();
+
+    // For immersive-vr, we need to create an XRWebGLLayer and update the session's render state
+    if (session.mode === 'immersive-vr') {
+        const xrLayer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({ baseLayer: xrLayer });
+    }
+
+    // Get the appropriate reference space for the session mode
+    xrRefSpace = await session.requestReferenceSpace(session.mode === 'immersive-vr' ? 'local-floor' : 'viewer');
+
+    // Start the XR loop
+    session.requestAnimationFrame(onXRFrame);
+}
+
+function onSessionEnded(event) {
+    xrSession = null;
+}
+
+function onXRFrame(time, frame) {
+    const session = frame.session;
+    session.requestAnimationFrame(onXRFrame);
+    
+    const pose = frame.getViewerPose(xrRefSpace);
+    
+    if (pose) {
+        const glLayer = session.renderState.baseLayer;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+        
+        for (const view of pose.views) {
+            const viewport = glLayer.getViewport(view);
+            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+            
+            // Update projection matrix
+            projectionMatrix = view.projectionMatrix;
+            gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
+            
+            // Update view matrix
+            viewMatrix = invert4(view.transform.matrix);
+            gl.uniformMatrix4fv(u_view, false, viewMatrix);
+            
+            // Render the scene
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+        }
+    }
+}
+
+let gl;
+function initWebGL() {
+    const canvas = document.getElementById('canvas'); 
+    gl = canvas.getContext('webgl2', { antialias: false, xrCompatible: true });
+    if (!gl) {
+        console.error('WebGL 2 not supported or context creation failed');
+        return;
+    }
+    console.log('WebGL 2 context created successfully');
+    // Add WebGL setup code...
+}
+
 function updateBrushSize(newSize) {
     brushSize = newSize;
     console.log("Brush size updated:", brushSize);
@@ -851,11 +1065,11 @@ window.toggleBurnMode = function() {
 }
     */
 function updateCanvasCursor() {
-    const canvas = document.getElementById('canvas');  // Make sure this matches your canvas ID
+    const canvas = document.getElementById('canvas');  
     if (cursorMode) {
         canvas.style.cursor = 'default';
     } else {
-        canvas.style.cursor = 'crosshair';  // Or any other appropriate cursor for the active tool
+        canvas.style.cursor = 'crosshair'; 
     }
 }
 window.toggleCursorMode = function() {
@@ -909,6 +1123,10 @@ async function main() {
     let carousel = true;
     let undoStack = [];
     const MAX_UNDO_STEPS = 50;
+    let u_exposure, u_focalLength, u_aperture;
+    let exposure = 0;
+    let focalLength = 50;
+    let aperture = 5.6;
     const params = new URLSearchParams(location.search);
     try {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
@@ -952,9 +1170,12 @@ async function main() {
 
     let projectionMatrix;
 
-    const gl = canvas.getContext("webgl2", {
-        antialias: false,
+    const gl = canvas.getContext("webgl2", { 
+        antialias: false, 
+        xrCompatible: true,
+        preserveDrawingBuffer: true
     });
+    
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vertexShader, vertexShaderSource);
@@ -1366,6 +1587,131 @@ async function main() {
         },
         { passive: false },
     );
+
+    // Camera tool functions
+    function initCameraControls() {
+        u_exposure = gl.getUniformLocation(program, 'u_exposure');
+        u_focalLength = gl.getUniformLocation(program, 'u_focalLength');
+        u_aperture = gl.getUniformLocation(program, 'u_aperture');
+        updateCameraControls();
+      }
+    function setupCameraControls() {
+        u_exposure = gl.getUniformLocation(program, 'u_exposure');
+        u_focalLength = gl.getUniformLocation(program, 'u_focalLength');
+        u_aperture = gl.getUniformLocation(program, 'u_aperture');
+
+        document.getElementById('exposure').addEventListener('input', function() {
+            exposure = parseFloat(this.value);
+            updateCameraControls();
+        });
+
+        document.getElementById('focal-length').addEventListener('input', function() {
+            focalLength = parseFloat(this.value);
+            updateCameraControls();
+        });
+
+        document.getElementById('aperture').addEventListener('input', function() {
+            aperture = parseFloat(this.value);
+            updateCameraControls();
+        });
+
+        updateCameraControls();
+    }
+
+    function updateCameraControls() {
+        document.getElementById('exposure-value').textContent = exposure.toFixed(1);
+        document.getElementById('focal-length-value').textContent = focalLength.toFixed(0);
+        document.getElementById('aperture-value').textContent = aperture.toFixed(1);
+
+        gl.uniform1f(u_exposure, exposure);
+        gl.uniform1f(u_focalLength, focalLength);
+        gl.uniform1f(u_aperture, aperture);
+    }
+
+    // Screenshot tool functions
+
+    let isCapturingScreenshot = false;
+    let screenshotDebounceTimer = null;
+
+    function setupScreenshotTool() {
+        const screenshotBtn = document.getElementById('screenshot-btn');
+        screenshotBtn.removeEventListener('click', debouncedTakeScreenshot);
+        screenshotBtn.addEventListener('click', debouncedTakeScreenshot);
+        console.log('Screenshot tool set up');
+    }
+    /*
+    function debouncedTakeScreenshot() {
+        console.log('Screenshot button clicked');
+        if (screenshotDebounceTimer) {
+            clearTimeout(screenshotDebounceTimer);
+        }
+        screenshotDebounceTimer = setTimeout(takeScreenshot, 300);
+    }
+    */
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+    
+    let screenshotCount = 0;
+    
+    function setupScreenshotTool() {
+        const screenshotBtn = document.getElementById('screenshot-btn');
+        screenshotBtn.removeEventListener('click', debouncedTakeScreenshot);
+        screenshotBtn.addEventListener('click', debouncedTakeScreenshot);
+        console.log('Screenshot tool set up');
+    }
+    
+    const debouncedTakeScreenshot = debounce(() => {
+        console.log(`Screenshot button clicked. Count: ${++screenshotCount}`);
+        takeScreenshot();
+    }, 300);
+    
+    function takeScreenshot() {
+        if(isCapturingScreenshot) return;
+        console.log('Taking screenshot');
+        isCapturingScreenshot = true;
+        const canvas = document.getElementById('canvas');
+        // Create a temporary canvas to draw the WebGL canvas content
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // Draw the WebGL canvas content onto the temporary canvas
+        tempCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL('image/png');
+        
+        requestAnimationFrame(() => {
+            try {
+                console.log('Capturing screenshot in requestAnimationFrame');
+                const dataURL = canvas.toDataURL('image/png');
+                console.log(`Screenshot data URL length: ${dataURL.length}`);
+                const link = document.createElement('a');
+                link.href = dataURL;
+                link.download = `gaussian-splat-screenshot-${screenshotCount}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                console.log(`Screenshot ${screenshotCount} saved`);
+            } catch (error) {
+                console.error('Error capturing screenshot:', error);
+            }
+        });    
+    }
+    
+    function setupUI() {
+        setupCameraControls();
+        setupScreenshotTool();
+    }
+
     // Brush tool functions
     function startBrushing(e) {
         down = true;
@@ -1463,25 +1809,19 @@ function updateSplatColors(affectedSplats) {
         ];
 
         if (eraserMode) {
-            // Restore original color
             u_buffer[colorOffset] = originalColors[colorOffset];
             u_buffer[colorOffset + 1] = originalColors[colorOffset + 1];
             u_buffer[colorOffset + 2] = originalColors[colorOffset + 2];
             u_buffer[colorOffset + 3] = originalColors[colorOffset + 3];
         } else if (dodgeMode) {
-            // Apply dodge effect
             u_buffer[colorOffset] = Math.min(255, oldColor[0] + (255 - oldColor[0]) * dodgeStrength);
             u_buffer[colorOffset + 1] = Math.min(255, oldColor[1] + (255 - oldColor[1]) * dodgeStrength);
             u_buffer[colorOffset + 2] = Math.min(255, oldColor[2] + (255 - oldColor[2]) * dodgeStrength);
-            // Alpha remains unchanged
         } else if (burnMode) {
-            // Apply burn effect
             u_buffer[colorOffset] = Math.max(0, oldColor[0] - (oldColor[0] * burnStrength));
             u_buffer[colorOffset + 1] = Math.max(0, oldColor[1] - (oldColor[1] * burnStrength));
             u_buffer[colorOffset + 2] = Math.max(0, oldColor[2] - (oldColor[2] * burnStrength));
-            // Alpha remains unchanged
         } else {
-            // Apply brush color
             u_buffer[colorOffset] = brushColor[0];
             u_buffer[colorOffset + 1] = brushColor[1];
             u_buffer[colorOffset + 2] = brushColor[2];
@@ -1523,15 +1863,14 @@ function updateSplatColors(affectedSplats) {
         updateTexture();
     }
     function getOriginalColor(index) {
-        // This is a placeholder. You need to implement this based on how you store original colors
-        // For now, let's return a default color
-        return [128, 128, 128, 255]; // Gray color
+        // placeholder. need to implement this based on how you store original colors
+        // return a default color
+        return [128, 128, 128, 255]; // Gray 
     }
         
     
     function updateTexture() {
         console.log("Updating texture");
-        // Re-generate the texture data
         worker.postMessage({
             buffer: splatData.buffer,
             vertexCount: vertexCount
@@ -1560,7 +1899,6 @@ function updateSplatColors(affectedSplats) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
-    // Add event listener for brush size
     document.getElementById('brush-size').addEventListener('input', function() {
         brushSize = parseFloat(this.value);
         document.getElementById('brush-size-value').textContent = this.value;
@@ -1596,6 +1934,8 @@ function updateSplatColors(affectedSplats) {
     let leftGamepadTrigger, rightGamepadTrigger;
 
     const frame = (now) => {
+        if(xrSession)
+            return;
         let inv = invert4(viewMatrix);
         let shiftKey = activeKeys.includes("Shift") || activeKeys.includes("ShiftLeft") || activeKeys.includes("ShiftRight")
 
@@ -1753,6 +2093,9 @@ function updateSplatColors(affectedSplats) {
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
+            gl.uniform1f(u_exposure, exposure);
+            gl.uniform1f(u_focalLength, focalLength);
+            gl.uniform1f(u_aperture, aperture);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
         } else {
@@ -1875,8 +2218,29 @@ function updateSplatColors(affectedSplats) {
             originalColors[colorOffset + 2],
             originalColors[colorOffset + 3]
         ];
-    }   
+    }
+    u_exposure = gl.getUniformLocation(program, 'u_exposure');
+    u_focalLength = gl.getUniformLocation(program, 'u_focalLength');
+    u_aperture = gl.getUniformLocation(program, 'u_aperture');
+    setupUI();
+    initCameraControls();
+    initWebGL();
+    checkSecureContext();
+    await initXR();
 }
+
+    main().then(() => {
+        initXR();
+    }).catch((err) => {
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("message").innerText = err.toString();
+    });  
+
+    main().catch((err) => {
+        console.error('Error in main:', err);
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("message").innerText = err.toString();
+    });
 
 document.addEventListener('DOMContentLoaded', () => {
     toggleMode('cursor');
@@ -1884,8 +2248,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById("spinner").style.display = "none";
         document.getElementById("message").innerText = err.toString();
     });
-
-    // Move the brush size event listener here
     const brushSizeInput = document.getElementById('brush-size');
     const brushSizeValue = document.getElementById('brush-size-value');
     if (brushSizeInput && brushSizeValue) {
@@ -1898,4 +2260,3 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("Brush size input or value display element not found");
     }
 });
-
