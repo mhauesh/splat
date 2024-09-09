@@ -837,6 +837,59 @@ let xrInlineSystem = null;
 let xrViewerSpace = null;
 let xrHitTestSource = null;
 
+
+// Merge Splats
+
+let newSplatData = null;
+let newSplatVertexCount = 0;
+let isPositioningNewSplat = false;
+let newSplatPosition = [0, 0, 0];
+let newSplatRotation = [0, 0, 0];
+let newSplatScale = 1;
+
+function setupNewSplatDragAndDrop() {
+    const dragDropZone = document.getElementById('drag-drop-zone');
+
+    dragDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragDropZone.style.backgroundColor = 'rgba(200, 200, 200, 0.8)';
+    });
+
+    dragDropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragDropZone.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+    });
+
+    dragDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragDropZone.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            loadNewSplatFile(file);
+        }
+    });
+}
+
+function loadNewSplatFile(file) {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        newSplatData = new Uint8Array(event.target.result);
+        newSplatVertexCount = Math.floor(newSplatData.length / rowLength);
+        console.log(`Loaded new splat with ${newSplatVertexCount} vertices`);
+        startNewSplatPositioning();
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function startNewSplatPositioning() {
+    isPositioningNewSplat = true;
+    console.log("Start positioning the new splat. Use arrow keys to move, WASD to rotate, and +/- to scale.");
+}
+
 async function initXR() {
     console.log('Initializing WebXR...');
     if (navigator.xr) {
